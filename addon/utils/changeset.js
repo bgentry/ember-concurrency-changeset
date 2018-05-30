@@ -1,21 +1,21 @@
-import { all, task } from "ember-concurrency";
-import EmberObject, { get, computed } from "@ember/object";
-import { readOnly, or, not, mapBy } from "@ember/object/computed";
+import { all } from "ember-concurrency";
+import EmberObject, { get, computed, set } from "@ember/object";
+import { readOnly, not, mapBy } from "@ember/object/computed";
 import { isEqual, isNone } from "@ember/utils";
-import { assert, runInDebug } from "@ember/debug";
+import { assert } from "@ember/debug";
 import Mixin from "@ember/object/mixin";
 import Evented from "@ember/object/evented";
-import { isArray } from "@ember/array";
+import { A as emberArray } from "@ember/array";
 import { resolve } from "rsvp";
 import PropertyValidator from "ember-concurrency-changeset/utils/property-validator"
+import Relay from "ember-concurrency-changeset/-private/relay";
 
 import objectToArray from "ember-changeset/utils/computed/object-to-array";
 import isEmptyObject from "ember-changeset/utils/computed/is-empty-object";
 import inflate from "ember-changeset/utils/computed/inflate";
 import transform from "ember-changeset/utils/computed/transform";
-import isChangeset, { CHANGESET } from "ember-changeset/utils/is-changeset";
+import { CHANGESET } from "ember-changeset/utils/is-changeset";
 import isObject from "ember-changeset/utils/is-object";
-import Relay from "ember-changeset/-private/relay";
 import isRelay from "ember-changeset/utils/is-relay";
 import setNestedProperty from 'ember-changeset/utils/set-nested-property';
 
@@ -48,6 +48,7 @@ const OPTIONS = "_options";
 const RUNNING_VALIDATIONS = "_runningValidations";
 const BEFORE_VALIDATION_EVENT = "beforeValidation";
 const AFTER_VALIDATION_EVENT = "afterValidation";
+const AFTER_ROLLBACK_EVENT = 'afterRollback';
 const defaultValidatorFn = () => true;
 const defaultOptions = { skipValidate: false };
 
@@ -81,7 +82,7 @@ export function newChangeset(
 ) {
   let args = {};
   args[CONTENT] = obj;
-  args[VALIDATOR] = validateFn;
+  args[VALIDATOR] = validateFn || defaultValidatorFn;
   args[VALIDATION_MAP] = validationMap;
   args[OPTIONS] = pureAssign(defaultOptions, options);
   return Changeset.create(args);
@@ -119,15 +120,23 @@ const Changeset = EmberObject.extend(Evented, InternalPropertiesMixin, {
   },
 
   _initPropertyValidators() {
-    let c = this;
-    let validator = get(this, VALIDATOR);
-    Object.keys(this[VALIDATION_MAP]).forEach(key => {
-      c[PROPERTY_VALIDATORS][key] = PropertyValidator.create({
-        key,
-        validator,
-      });
+    if (!this[VALIDATION_MAP]) {
+      return;
+    }
+    Object.entries(this[VALIDATION_MAP]).forEach(([key, validator]) => {
+      this._initPropertyValidator(key, validator)
     });
   },
+
+  _initPropertyValidator(key, validator) {
+    let c = this;
+    c[PROPERTY_VALIDATORS][key] = PropertyValidator.create({
+      key,
+      validator,
+    });
+    return c[PROPERTY_VALIDATORS][key];
+  },
+
 
   _allPropertyValidators: computed(function() {
     return Object.values(this[PROPERTY_VALIDATORS]);
@@ -155,33 +164,51 @@ const Changeset = EmberObject.extend(Evented, InternalPropertiesMixin, {
   },
 
   /**
+   * Returns the changeset to its pristine state, and discards changes and
+   * errors.
+   */
+  rollback() /*: ChangesetDef */ {
+    // Notify keys contained in relays.
+    let relayCache /*: RelayCache */ = get(this, RELAY_CACHE);
+    for (let key in relayCache) relayCache[key].rollback();
+
+    // Get keys before reset.
+    let keys = (this /*: ChangesetDef */)._rollbackKeys();
+
+    // Reset.
+    set(this, RELAY_CACHE, {});
+    set(this, CHANGES, {});
+    set(this, ERRORS, {});
+    (this /*: ChangesetDef */)._notifyVirtualProperties(keys)
+
+    this.trigger(AFTER_ROLLBACK_EVENT);
+    return this;
+  },
+
+  /**
    * Validates the changeset immediately against the validationMap passed in.
    * If no key is passed into this method, it will validate all fields on the
    * validationMap and set errors accordingly. Will throw an error if no
    * validationMap is present.
    */
-  validate(
-    key /*: string | void */
-  ) /*: Promise<null> | Promise<mixed | ErrLike<mixed>> | Promise<Array<mixed | ErrLike<mixed>>> */ {
+  validate(key)  {
     let validationMap = this[VALIDATION_MAP];
     if (Object.keys(validationMap).length === 0) {
       return resolve(null);
     }
 
-    let c /*: ChangesetDef */ = this;
+    let c = this;
+    const isPlain = true;
 
     if (isNone(key)) {
       let allPromises = Object.keys(validationMap).map(validationKey => {
-        const isPlain = true;
         return c._setAndValidate(validationKey, c._valueFor(validationKey, isPlain));
       });
 
       return all(allPromises);
     }
 
-    let k /*: string */ = (key /*: any */);
-    const isPlain = true;
-    return resolve(c._validateAndSet(k, c._valueFor(k, isPlain)));
+    return c._setAndValidate(key, c._valueFor(key, isPlain));
   },
 
   _setAndValidate(key, newValue) {
@@ -190,6 +217,11 @@ const Changeset = EmberObject.extend(Evented, InternalPropertiesMixin, {
     let changes = get(this, CHANGES);
 
     let c = this;
+
+    let propertyValidator = c[PROPERTY_VALIDATORS][key];
+    if (!propertyValidator) {
+      propertyValidator = this._initPropertyValidator(key, c[VALIDATOR]);
+    }
 
     // Happy path: remove `key` from error map.
     c._deleteKey(ERRORS, key);
@@ -315,6 +347,15 @@ const Changeset = EmberObject.extend(Evented, InternalPropertiesMixin, {
    */
   _notifyVirtualProperties(keys = this._rollbackKeys()) {
     (keys || []).forEach(key => this.notifyPropertyChange(key));
+  },
+
+  /**
+   * Gets the changes and error keys.
+   */
+  _rollbackKeys() {
+    let changes = get(this, CHANGES);
+    let errors = get(this, ERRORS);
+    return emberArray([...Object.keys(changes), ...Object.keys(errors)]).uniq();
   },
 
   _deleteKey(objName, key = "") {
