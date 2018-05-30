@@ -6,7 +6,7 @@
     "ember-addon"
   ],
   "license": "MIT",
-  "author": "",
+  "author": "Blake Gentry",
   "directories": {
     "doc": "doc",
     "test": "tests"
