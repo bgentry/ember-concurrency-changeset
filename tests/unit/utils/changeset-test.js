@@ -6,6 +6,7 @@ import { isPresent, typeOf } from "@ember/utils";
 import { resolve } from "rsvp";
 import { run } from "@ember/runloop";
 import { settled } from "ember-test-helpers";
+import ObjectProxy from "@ember/object/proxy";
 
 let dummyValidations = {
   name(value) {
@@ -262,4 +263,173 @@ module('Unit | Utility | changeset', function(hooks) {
       }
     });
   });
+
+  module("#set", function() {
+    test('it adds a change if valid', async function(assert) {
+      let expectedChanges = [{ key: 'name', value: 'foo' }];
+      let dummyChangeset = newChangeset(model);
+      run(() => dummyChangeset.set('name', 'foo'));
+      let changes = get(dummyChangeset, 'changes');
+
+      assert.deepEqual(changes, expectedChanges, 'should add change');
+    });
+
+    test('it removes a change if set back to original value', async function(assert) {
+      let model = EmberObject.create({ name: 'foo' });
+      let dummyChangeset = newChangeset(model);
+
+      run(() => dummyChangeset.set('name', 'bar'));
+      assert.deepEqual(
+        get(dummyChangeset, 'changes'),
+        [{ key: 'name', value: 'bar' }],
+        'change is added when value is different than original value'
+      );
+
+      run(() => dummyChangeset.set('name', 'foo'));
+      assert.deepEqual(
+        get(dummyChangeset, 'changes'),
+        [],
+        'change is removed when new value matches original value'
+      );
+    });
+
+    test('it removes a change if set back to original value when obj is ProxyObject', async function(assert) {
+      let model = ObjectProxy.create({ content: { name: 'foo' } });
+      let dummyChangeset = newChangeset(model);
+
+      run(() => dummyChangeset.set('name', 'bar'));
+      assert.deepEqual(
+        get(dummyChangeset, 'changes'),
+        [{ key: 'name', value: 'bar' }],
+        'change is added when value is different than original value'
+      );
+
+      run(() => dummyChangeset.set('name', 'foo'));
+      assert.deepEqual(
+        get(dummyChangeset, 'changes'),
+        [],
+        'change is removed when new value matches original value'
+      );
+    });
+
+    test('it adds the change even if invalid', async function(assert) {
+      let expectedErrors = [
+        { key: 'name', validation: 'too short', value: 'a' },
+        { key: 'password', validation: ['foo', 'bar'], value: false }
+      ];
+      let expectedChanges = [
+        { key: 'name', value: 'a' },
+        { key: 'password', value: false },
+      ];
+      let dummyChangeset = newChangeset(model, dummyValidator);
+      run(() => {
+        dummyChangeset.set('name', 'a');
+        dummyChangeset.set('password', false);
+      });
+      let changes = get(dummyChangeset, 'changes');
+      let errors = get(dummyChangeset, 'errors');
+      let isValid = get(dummyChangeset, 'isValid');
+      let isInvalid = get(dummyChangeset, 'isInvalid');
+
+      assert.deepEqual(changes, expectedChanges, 'should not add change');
+      assert.deepEqual(errors, expectedErrors, 'should have errors');
+      assert.notOk(isValid, 'should not be valid');
+      assert.ok(isInvalid, 'should be invalid');
+    });
+
+    test('it adds the change without validation if `skipValidate` option is set', async function(assert) {
+      let expectedChanges = [{ key: 'password', value: false }];
+
+      let dummyChangeset = newChangeset(model, dummyValidator, null, {skipValidate: true});
+      run(() => dummyChangeset.set('password', false));
+      let changes = get(dummyChangeset, 'changes');
+
+      assert.deepEqual(changes, expectedChanges, 'should add change');
+    });
+
+    test('it should remove nested changes when setting roots', async function(assert) {
+      set(model, 'org', {
+        usa: {
+          ny: 'ny',
+          ca: 'ca',
+        },
+      });
+
+      let c = newChangeset(model);
+      run(() => {
+        c.set('org.usa.ny', 'foo');
+        c.set('org.usa.ca', 'bar');
+        c.set('org', 'no usa for you')
+      });
+
+      let actual = get(c, 'changes');
+      let expectedResult = [{ key: 'org', value: 'no usa for you' }];
+      assert.deepEqual(actual, expectedResult, 'removes nested changes');
+    });
+
+    test('it works with setProperties', async function(assert) {
+      let dummyChangeset = newChangeset(model);
+      let expectedResult = [
+        { key: 'firstName', value: 'foo' },
+        { key: 'lastName', value: 'bar' }
+      ];
+      run(() => dummyChangeset.setProperties({ firstName: 'foo', lastName: 'bar' }));
+
+      assert.deepEqual(get(dummyChangeset, 'changes'), expectedResult, 'precondition');
+    });
+
+    test('it accepts async validations', async function(assert) {
+      let done = assert.async();
+      let dummyChangeset = newChangeset(model, dummyValidator);
+      let expectedChanges = [{ key: 'async', value: true }];
+      let expectedError = { async: { validation: 'is invalid', value: 'is invalid' } };
+      run(() => dummyChangeset.set('async', true));
+      run(() => assert.deepEqual(get(dummyChangeset, 'changes'), expectedChanges, 'should set change'));
+      run(() => dummyChangeset.set('async', 'is invalid'));
+      run(() => {
+        assert.deepEqual(get(dummyChangeset, 'error'), expectedError, 'should set error');
+        done();
+      });
+    });
+
+    test('it clears errors when setting to original value', async function(assert) {
+      set(model, 'name', 'Jim Bob');
+      let dummyChangeset = newChangeset(model, dummyValidator);
+      run(() => dummyChangeset.set('name', ''));
+
+      assert.ok(get(dummyChangeset, 'isInvalid'), 'should be invalid');
+      run(() => dummyChangeset.set('name', 'Jim Bob'));
+      assert.ok(get(dummyChangeset, 'isValid'), 'should be valid');
+      assert.notOk(get(dummyChangeset, 'isInvalid'), 'should be valid');
+    });
+
+    test('it should delete nested changes when equal', async function(assert) {
+      set(model, 'org', {
+        usa: { ny: 'i need a vacation' }
+      });
+
+      let c = newChangeset(model, dummyValidator, dummyValidations);
+      run(() => {
+        c.set('org.usa.ny', 'whoop');
+        c.set('org.usa.ny', 'i need a vacation');
+      });
+
+      let actual = get(c, 'change.org.usa.ny');
+      let expectedResult = undefined;
+      assert.equal(actual, expectedResult, 'should clear nested key');
+    });
+
+    test('it works when replacing an Object with an primitive', async function(assert) {
+      let model = { foo: { bar: { baz: 42 } } };
+
+      let c = newChangeset(model);
+      assert.deepEqual(c.get('foo'), get(model, 'foo'));
+
+      run(() => c.set('foo', 'not an object anymore'));
+      // ember-changeset was originally testing that this equaled the original model's
+      // 'foo' property, which doesn't seem right. It should be replaced by the new 'foo'
+      // value string set above:
+      assert.equal(c.get('foo'), 'not an object anymore');
+    });
+  })
 });
