@@ -432,4 +432,84 @@ module('Unit | Utility | changeset', function(hooks) {
       assert.equal(c.get('foo'), 'not an object anymore');
     });
   })
+
+  module("#rollback", function() {
+    test('restores old values', async function(assert) {
+      let dummyChangeset = newChangeset(model, dummyValidator);
+      let expectedChanges = [
+        { key: 'firstName', value: 'foo' },
+        { key: 'lastName', value: 'bar' },
+        { key: 'name', value: '' },
+      ];
+      let expectedErrors = [{ key: 'name', validation: 'too short', value: '' }];
+      run(() => {
+        dummyChangeset.set('firstName', 'foo');
+        dummyChangeset.set('lastName', 'bar');
+        dummyChangeset.set('name', '');
+      });
+      await settled();
+
+      assert.deepEqual(get(dummyChangeset, 'changes'), expectedChanges, 'precondition');
+      assert.deepEqual(get(dummyChangeset, 'errors'), expectedErrors, 'precondition');
+      run(() => dummyChangeset.rollback());
+      assert.deepEqual(get(dummyChangeset, 'changes'), [], 'should rollback');
+      assert.deepEqual(get(dummyChangeset, 'errors'), [], 'should rollback');
+    });
+
+    test('resets valid state', async function(assert) {
+      let dummyChangeset = newChangeset(model, dummyValidator);
+      run(() => dummyChangeset.set('name', 'a'));
+
+      assert.ok(get(dummyChangeset, 'isInvalid'), 'should be invalid');
+      run(() => dummyChangeset.rollback());
+      assert.ok(get(dummyChangeset, 'isValid'), 'should be valid');
+    });
+
+    test('observing #rollback values', async function(assert) {
+      let res;
+      let changeset = newChangeset(model, dummyValidator);
+      changeset.addObserver('name', function() { res = this.get('name') });
+      assert.equal(undefined, changeset.get('name'), 'initial value');
+      run(() => changeset.set('name', 'Jack'));
+      assert.equal('Jack', res, 'observer fired when setting value');
+      run(() => changeset.rollback());
+      assert.equal(undefined, res, 'observer fired with the value name was rollback to');
+    });
+
+    test('can update nested keys after rollback changes.', async function(assert) {
+      let expectedResult = {
+        org: {
+          asia: { sg: 'sg' },
+          usa: {
+            ny: 'ny',
+            ma: { name: 'Massachusetts' }
+          }
+        }
+      };
+      set(model, 'org', {
+        asia: { sg: null },
+        usa: {
+          ny: null,
+          ma: { name: null }
+        }
+      });
+
+      let dummyChangeset = newChangeset(model, dummyValidator);
+      run(() => {
+        dummyChangeset.set('org.asia.sg', 'sg');
+        dummyChangeset.set('org.usa.ny', 'ny');
+        dummyChangeset.set('org.usa.ma', { name: 'Massachusetts' });
+      });
+      dummyChangeset.execute();
+      assert.deepEqual(get(model, 'org'), expectedResult.org, 'should set value');
+
+      expectedResult.org.usa.or = 'or';
+      run(() => {
+        dummyChangeset.rollback();
+        dummyChangeset.set('org.usa.or', 'or');
+      });
+      dummyChangeset.execute();
+      assert.deepEqual(get(model, 'org'), expectedResult.org, 'should set value');
+    });
+  })
 });
