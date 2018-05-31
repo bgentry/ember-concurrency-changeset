@@ -239,13 +239,9 @@ const Changeset = EmberObject.extend(Evented, InternalPropertiesMixin, {
     c.notifyPropertyChange(CHANGES);
     c.notifyPropertyChange(key);
 
-    return c[PROPERTY_VALIDATORS][key].validate.perform(
-      c,
-      newValue,
-      oldValue,
-      changes,
-      content
-    );
+    return propertyValidator
+      .get("validate")
+      .perform(c, newValue, oldValue, changes, content);
   },
 
   /**
