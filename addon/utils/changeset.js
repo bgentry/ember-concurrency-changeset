@@ -107,15 +107,20 @@ const Changeset = EmberObject.extend(Evented, InternalPropertiesMixin, {
     c[RELAY_CACHE] = {};
     c[RUNNING_VALIDATIONS] = {};
     c[PROPERTY_VALIDATORS] = {};
-    this._initPropertyValidators();
+    this._initPropertyValidators(this[VALIDATION_MAP]);
   },
 
-  _initPropertyValidators() {
-    if (!this[VALIDATION_MAP]) {
+  _initPropertyValidators(map, prefix = null) {
+    if (!map) {
       return;
     }
-    Object.entries(this[VALIDATION_MAP]).forEach(([key, validator]) => {
-      this._initPropertyValidator(key, validator);
+    Object.entries(map).forEach(([key, validator]) => {
+      let prefixedKey = prefix ? `${prefix}.${key}` : key;
+      if (isObject(validator)) {
+        this._initPropertyValidators(validator, prefixedKey); // recurse down the tree
+      } else {
+        this._initPropertyValidator(prefixedKey, validator);
+      }
     });
   },
 

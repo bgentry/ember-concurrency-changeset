@@ -18,14 +18,12 @@ let dummyValidations = {
   passwordConfirmation(
     newValue,
     _oldValue,
-    { password: changedPassword },
-    { password }
+    { password: changedPassword, passwordConfirmation }
   ) {
-    return (
-      (isPresent(newValue) &&
-        (changedPassword === newValue || password === newValue)) ||
-      "password doesn't match"
-    );
+    if (!changedPassword && !passwordConfirmation) {
+      return true;
+    }
+    return changedPassword === passwordConfirmation || "password doesn't match";
   },
   async(value) {
     return resolve(value);
@@ -564,6 +562,220 @@ module("Unit | Utility | changeset", function(hooks) {
         res,
         "observer fired with the value name was rollback to"
       );
+    });
+  });
+
+  module("#validate", function() {
+    test("#validate/0 validates all fields immediately", function(assert) {
+      let done = assert.async();
+      model.setProperties({ name: "J", password: false, options: null });
+      let dummyChangeset = newChangeset(model, dummyValidations);
+
+      run(() => {
+        dummyChangeset.validate().then(() => {
+          assert.deepEqual(
+            get(dummyChangeset, "error.password"),
+            { validation: ["foo", "bar"], value: false },
+            "should validate immediately"
+          );
+          assert.deepEqual(
+            get(dummyChangeset, "changes"),
+            [],
+            "should not set changes"
+          );
+          // errors on all fields except confirmation, because neither password
+          // nor confirmaton have been set:
+          assert.equal(
+            get(dummyChangeset, "errors.length"),
+            4,
+            "should have 4 errors"
+          );
+          done();
+        });
+      });
+    });
+
+    test("#validate/1 validates a single field immediately", function(assert) {
+      let done = assert.async();
+      model.setProperties({ name: "J", password: "123" });
+      let dummyChangeset = newChangeset(model, dummyValidations);
+
+      run(() => {
+        dummyChangeset.validate("name").then(() => {
+          assert.deepEqual(
+            get(dummyChangeset, "error.name"),
+            { validation: "too short", value: "J" },
+            "should validate immediately"
+          );
+          assert.deepEqual(
+            get(dummyChangeset, "changes"),
+            [],
+            "should not set changes"
+          );
+          assert.equal(
+            get(dummyChangeset, "errors.length"),
+            1,
+            "should only have 1 error"
+          );
+          done();
+        });
+      });
+    });
+
+    test("it works correctly with changeset values", function(assert) {
+      let done = assert.async();
+      model.setProperties({
+        name: undefined,
+        password: false,
+        async: true,
+        passwordConfirmation: false,
+        options: {},
+      });
+      let dummyChangeset = newChangeset(model, dummyValidations);
+
+      run(() => {
+        dummyChangeset.set("name", "Jim Bob");
+        dummyChangeset.validate().then(() => {
+          assert.equal(
+            get(dummyChangeset, "errors.length"),
+            1,
+            "should have 1 error"
+          );
+          assert.equal(get(dummyChangeset, "errors.0.key"), "password");
+          assert.ok(get(dummyChangeset, "isInvalid"), "should be invalid");
+        });
+      });
+
+      run(() => {
+        dummyChangeset.set("passwordConfirmation", true);
+        dummyChangeset.validate().then(() => {
+          assert.equal(
+            get(dummyChangeset, "errors.length"),
+            2,
+            "should have 2 errors"
+          );
+          assert.equal(get(dummyChangeset, "errors.0.key"), "password");
+          assert.equal(
+            get(dummyChangeset, "errors.1.key"),
+            "passwordConfirmation"
+          );
+          assert.ok(get(dummyChangeset, "isInvalid"), "should be invalid");
+        });
+      });
+
+      run(() => {
+        dummyChangeset.set("password", true);
+        dummyChangeset.set("passwordConfirmation", true);
+        dummyChangeset.validate().then(() => {
+          assert.equal(
+            get(dummyChangeset, "errors.length"),
+            0,
+            "should have no errors"
+          );
+          assert.ok(get(dummyChangeset, "isValid"), "should be valid");
+          done();
+        });
+      });
+    });
+
+    test("it works correctly with complex values", function(assert) {
+      let done = assert.async();
+      model.setProperties({});
+      let dummyChangeset = newChangeset(model, dummyValidations);
+
+      run(() => {
+        dummyChangeset.set("options", { persist: true });
+        dummyChangeset.validate().then(() => {
+          assert.deepEqual(get(dummyChangeset, "changes.0"), {
+            key: "options",
+            value: { persist: true },
+          });
+          done();
+        });
+      });
+    });
+
+    test("it marks all changes, even invalid ones", function(assert) {
+      let done = assert.async();
+      model.setProperties({
+        name: "Jim Bob",
+        password: true,
+        passwordConfirmation: true,
+        async: true,
+      });
+      let dummyChangeset = newChangeset(model, dummyValidations);
+
+      run(() => {
+        dummyChangeset.set("name", "foo bar");
+        dummyChangeset.set("password", false);
+
+        dummyChangeset.validate().then(() => {
+          assert.deepEqual(get(dummyChangeset, "changes"), [
+            { key: "name", value: "foo bar" },
+            { key: "password", value: false },
+          ]);
+          done();
+        });
+      });
+    });
+
+    test("it does not mark changes when nothing has changed", function(assert) {
+      let done = assert.async();
+      let options = {
+        persist: true,
+        // test isEqual to ensure we're using Ember.isEqual for comparison
+        isEqual(other) {
+          return this.persist === get(other, "persist");
+        },
+      };
+      model.setProperties({
+        name: "Jim Bob",
+        password: true,
+        passwordConfirmation: true,
+        async: true,
+        options,
+      });
+      let dummyChangeset = newChangeset(model, dummyValidations);
+
+      run(() => {
+        dummyChangeset.set("options", options);
+        dummyChangeset.validate().then(() => {
+          assert.deepEqual(get(dummyChangeset, "error"), {});
+          assert.deepEqual(get(dummyChangeset, "changes"), []);
+          done();
+        });
+      });
+    });
+
+    test("it validates nested fields immediately", function(assert) {
+      let done = assert.async();
+      set(model, "org", {
+        usa: {
+          ny: null,
+        },
+      });
+
+      let dummyChangeset = newChangeset(model, dummyValidations);
+      run(() => {
+        dummyChangeset.validate("org.usa.ny").then(() => {
+          assert.deepEqual(
+            get(dummyChangeset, "error.org.usa.ny"),
+            { validation: "must be present", value: null },
+            "should validate immediately"
+          );
+          assert.deepEqual(
+            get(dummyChangeset, "changes"),
+            [],
+            "should not set changes"
+          );
+          assert.equal(
+            get(dummyChangeset, "errors.length"),
+            1,
+            "should only have 1 error"
+          );
+          done();
+        });
+      });
     });
   });
 });

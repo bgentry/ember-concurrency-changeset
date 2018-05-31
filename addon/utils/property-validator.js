@@ -2,7 +2,7 @@ import EmberObject, { get } from "@ember/object";
 import { readOnly } from "@ember/object/computed";
 import { task } from "ember-concurrency";
 import { isArray } from "@ember/array";
-import { typeOf, isPresent } from "@ember/utils";
+import { typeOf } from "@ember/utils";
 
 const PropertyValidator = EmberObject.extend({
   key: null,
@@ -16,14 +16,7 @@ const PropertyValidator = EmberObject.extend({
       return true;
     }
 
-    let result = yield validator({
-      key: this.key,
-      newValue,
-      oldValue,
-      changes,
-      content,
-    });
-    result = isPresent(result) ? result : true;
+    let result = yield validator(newValue, oldValue, changes, content);
     let isValid =
       result === true ||
       (isArray(result) && result.length === 1 && result[0] === true);
