@@ -1,11 +1,11 @@
 import { all } from "ember-concurrency";
 import EmberObject, { get, computed, set } from "@ember/object";
 import { readOnly, not, mapBy } from "@ember/object/computed";
-import { isEqual, isNone } from "@ember/utils";
+import { isEqual, isNone, isPresent } from "@ember/utils";
 import { assert } from "@ember/debug";
 import Mixin from "@ember/object/mixin";
 import Evented from "@ember/object/evented";
-import { A as emberArray } from "@ember/array";
+import { A as emberArray, isArray } from "@ember/array";
 import { resolve } from "rsvp";
 import PropertyValidator from "ember-concurrency-changeset/utils/property-validator";
 import Relay from "ember-concurrency-changeset/-private/relay";
@@ -294,6 +294,32 @@ const Changeset = EmberObject.extend(Evented, InternalPropertiesMixin, {
 
     // Return passed-in `error`.
     return error;
+  },
+
+  /**
+   * Manually push multiple errors to the changeset as an array. If there is
+   * an existing error or change for `key`. it will be overwritten.
+   */
+  pushErrors(key, ...newErrors) {
+    let errors = get(this, ERRORS);
+    let existingError = errors[key] || new Err(null, []);
+    let validation = existingError.validation;
+    let value = get(this, key);
+
+    if (!isArray(validation) && isPresent(validation)) {
+      let v = existingError.validation;
+      existingError.validation = [v];
+    }
+
+    let v = existingError.validation;
+    validation = [...v, ...newErrors];
+
+    let c = this;
+    c.notifyPropertyChange(ERRORS);
+    c.notifyPropertyChange(key);
+
+    errors[key] = new Err(value, validation);
+    return { value, validation };
   },
 
   /**

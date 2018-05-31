@@ -817,4 +817,47 @@ module("Unit | Utility | changeset", function(hooks) {
       assert.ok(get(dummyChangeset, "isValid"), "should be valid");
     });
   });
+
+  module("#pushErrors", function() {
+    test("it pushes an error into an array of existing validations", async function(assert) {
+      let dummyChangeset = newChangeset(model);
+      run(() => dummyChangeset.set("email", "jim@bob.com"));
+      dummyChangeset.addError("email", "Email already taken");
+      dummyChangeset.pushErrors("email", "Invalid email format");
+
+      assert.ok(get(dummyChangeset, "isInvalid"), "should be invalid");
+      assert.deepEqual(
+        get(dummyChangeset, "error.email.validation"),
+        ["Email already taken", "Invalid email format"],
+        "should push the error"
+      );
+      assert.equal(
+        get(dummyChangeset, "error.email.value"),
+        "jim@bob.com",
+        "pushErrors uses already present value"
+      );
+      run(() => dummyChangeset.set("email", "unique@email.com"));
+      assert.ok(get(dummyChangeset, "isValid"), "should be valid");
+    });
+
+    test("it pushes an error if no existing validations are present", async function(assert) {
+      let dummyChangeset = newChangeset(model, dummyValidations);
+      run(() => dummyChangeset.set("name", "J"));
+      dummyChangeset.pushErrors("name", "cannot be J");
+
+      assert.ok(get(dummyChangeset, "isInvalid"), "should be invalid");
+      assert.deepEqual(
+        get(dummyChangeset, "error.name.validation"),
+        ["too short", "cannot be J"],
+        "should push the error"
+      );
+      assert.equal(
+        get(dummyChangeset, "error.name.value"),
+        "J",
+        "pushErrors uses already present value"
+      );
+      run(() => dummyChangeset.set("name", "Good name"));
+      assert.ok(get(dummyChangeset, "isValid"), "should be valid");
+    });
+  });
 });
