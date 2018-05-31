@@ -566,7 +566,7 @@ module("Unit | Utility | changeset", function(hooks) {
   });
 
   module("#validate", function() {
-    test("#validate/0 validates all fields immediately", function(assert) {
+    test("#validate/0 validates all fields immediately", async function(assert) {
       let done = assert.async();
       model.setProperties({ name: "J", password: false, options: null });
       let dummyChangeset = newChangeset(model, dummyValidations);
@@ -595,7 +595,7 @@ module("Unit | Utility | changeset", function(hooks) {
       });
     });
 
-    test("#validate/1 validates a single field immediately", function(assert) {
+    test("#validate/1 validates a single field immediately", async function(assert) {
       let done = assert.async();
       model.setProperties({ name: "J", password: "123" });
       let dummyChangeset = newChangeset(model, dummyValidations);
@@ -622,7 +622,7 @@ module("Unit | Utility | changeset", function(hooks) {
       });
     });
 
-    test("it works correctly with changeset values", function(assert) {
+    test("it works correctly with changeset values", async function(assert) {
       let done = assert.async();
       model.setProperties({
         name: undefined,
@@ -678,7 +678,7 @@ module("Unit | Utility | changeset", function(hooks) {
       });
     });
 
-    test("it works correctly with complex values", function(assert) {
+    test("it works correctly with complex values", async function(assert) {
       let done = assert.async();
       model.setProperties({});
       let dummyChangeset = newChangeset(model, dummyValidations);
@@ -695,7 +695,7 @@ module("Unit | Utility | changeset", function(hooks) {
       });
     });
 
-    test("it marks all changes, even invalid ones", function(assert) {
+    test("it marks all changes, even invalid ones", async function(assert) {
       let done = assert.async();
       model.setProperties({
         name: "Jim Bob",
@@ -719,7 +719,7 @@ module("Unit | Utility | changeset", function(hooks) {
       });
     });
 
-    test("it does not mark changes when nothing has changed", function(assert) {
+    test("it does not mark changes when nothing has changed", async function(assert) {
       let done = assert.async();
       let options = {
         persist: true,
@@ -747,7 +747,7 @@ module("Unit | Utility | changeset", function(hooks) {
       });
     });
 
-    test("it validates nested fields immediately", function(assert) {
+    test("it validates nested fields immediately", async function(assert) {
       let done = assert.async();
       set(model, "org", {
         usa: {
@@ -776,6 +776,45 @@ module("Unit | Utility | changeset", function(hooks) {
           done();
         });
       });
+    });
+  });
+
+  module("#addError", function() {
+    test("it adds an error to the changeset", async function(assert) {
+      let dummyChangeset = newChangeset(model);
+      dummyChangeset.addError("email", {
+        value: "jim@bob.com",
+        validation: "Email already taken",
+      });
+
+      assert.ok(get(dummyChangeset, "isInvalid"), "should be invalid");
+      assert.equal(
+        get(dummyChangeset, "error.email.validation"),
+        "Email already taken",
+        "should add the error"
+      );
+      run(() => dummyChangeset.set("email", "unique@email.com"));
+      assert.ok(get(dummyChangeset, "isValid"), "should be valid");
+    });
+
+    test("it adds an error to the changeset using the shortcut", async function(assert) {
+      let dummyChangeset = newChangeset(model);
+      run(() => dummyChangeset.set("email", "jim@bob.com"));
+      dummyChangeset.addError("email", "Email already taken");
+
+      assert.ok(get(dummyChangeset, "isInvalid"), "should be invalid");
+      assert.equal(
+        get(dummyChangeset, "error.email.validation"),
+        "Email already taken",
+        "should add the error"
+      );
+      assert.equal(
+        get(dummyChangeset, "error.email.value"),
+        "jim@bob.com",
+        "addError uses already present value"
+      );
+      run(() => dummyChangeset.set("email", "unique@email.com"));
+      assert.ok(get(dummyChangeset, "isValid"), "should be valid");
     });
   });
 });
