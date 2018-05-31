@@ -2,7 +2,7 @@ import { module, test } from "qunit";
 import { setupTest } from "ember-qunit";
 import EmberObject, { get, set, setProperties } from "@ember/object";
 import Changeset, { newChangeset } from "ember-concurrency-changeset";
-import { isPresent, typeOf } from "@ember/utils";
+import { isPresent } from "@ember/utils";
 import { resolve } from "rsvp";
 import { run } from "@ember/runloop";
 import { settled } from "ember-test-helpers";
@@ -18,14 +18,12 @@ let dummyValidations = {
   passwordConfirmation(
     newValue,
     _oldValue,
-    { password: changedPassword },
-    { password }
+    { password: changedPassword, passwordConfirmation }
   ) {
-    return (
-      (isPresent(newValue) &&
-        (changedPassword === newValue || password === newValue)) ||
-      "password doesn't match"
-    );
+    if (!changedPassword && !passwordConfirmation) {
+      return true;
+    }
+    return changedPassword === passwordConfirmation || "password doesn't match";
   },
   async(value) {
     return resolve(value);
@@ -42,14 +40,6 @@ let dummyValidations = {
   },
 };
 
-function dummyValidator({ key, newValue, oldValue, changes, content }) {
-  let validatorFn = get(dummyValidations, key);
-
-  if (typeOf(validatorFn) === "function") {
-    return validatorFn(newValue, oldValue, changes, content);
-  }
-}
-
 module("Unit | Utility | changeset", function(hooks) {
   setupTest(hooks);
 
@@ -62,14 +52,13 @@ module("Unit | Utility | changeset", function(hooks) {
   test("it works via Changeset.create()", async function(assert) {
     let result = Changeset.create({
       _content: model,
-      _validator: dummyValidator,
       _validationMap: dummyValidations,
     });
     assert.ok(result);
   });
 
   test("it works via newChangeset", async function(assert) {
-    let result = newChangeset(model, dummyValidator, dummyValidations, {});
+    let result = newChangeset(model, dummyValidations, {});
     assert.ok(result);
   });
 
@@ -77,7 +66,7 @@ module("Unit | Utility | changeset", function(hooks) {
     assert.expect(1);
 
     let emptyObject = Object.create(null);
-    let dummyChangeset = new Changeset(emptyObject, dummyValidator);
+    let dummyChangeset = new Changeset(emptyObject, dummyValidations);
 
     assert.equal(dummyChangeset.toString(), "changeset:[object Object]");
   });
@@ -87,7 +76,7 @@ module("Unit | Utility | changeset", function(hooks) {
    */
 
   test("#error returns the error object", async function(assert) {
-    let dummyChangeset = newChangeset(model, dummyValidator);
+    let dummyChangeset = newChangeset(model, dummyValidations);
     let expectedResult = { name: { validation: "too short", value: "a" } };
     run(() => dummyChangeset.set("name", "a"));
     await settled();
@@ -125,7 +114,7 @@ module("Unit | Utility | changeset", function(hooks) {
     model.set("thing", 123);
     model.set("nothing", null);
 
-    let dummyChangeset = newChangeset(model, dummyValidator);
+    let dummyChangeset = newChangeset(model, dummyValidations);
     run(() => {
       dummyChangeset.set("name", "Bobby");
       dummyChangeset.set("nothing", null);
@@ -139,7 +128,7 @@ module("Unit | Utility | changeset", function(hooks) {
     let done = assert.async();
 
     model.set("name", "Bobby");
-    let dummyChangeset = newChangeset(model, dummyValidator);
+    let dummyChangeset = newChangeset(model, dummyValidations);
     run(() => {
       dummyChangeset.set("name", "Bobby");
       dummyChangeset.set("thing", 123);
@@ -206,7 +195,7 @@ module("Unit | Utility | changeset", function(hooks) {
         },
       });
 
-      let dummyChangeset = newChangeset(model, dummyValidator);
+      let dummyChangeset = newChangeset(model, dummyValidations);
       assert.equal(
         dummyChangeset.get("org.asia.sg"),
         "_initial",
@@ -235,7 +224,7 @@ module("Unit | Utility | changeset", function(hooks) {
         ["bob@email.com", "the_bob@email.com"],
         "returns initial model value"
       );
-      let dummyChangeset = newChangeset(model, dummyValidator);
+      let dummyChangeset = newChangeset(model, dummyValidations);
       assert.equal(
         dummyChangeset.get("name"),
         "Bob",
@@ -384,7 +373,7 @@ module("Unit | Utility | changeset", function(hooks) {
         { key: "name", value: "a" },
         { key: "password", value: false },
       ];
-      let dummyChangeset = newChangeset(model, dummyValidator);
+      let dummyChangeset = newChangeset(model, dummyValidations);
       run(() => {
         dummyChangeset.set("name", "a");
         dummyChangeset.set("password", false);
@@ -403,7 +392,7 @@ module("Unit | Utility | changeset", function(hooks) {
     test("it adds the change without validation if `skipValidate` option is set", async function(assert) {
       let expectedChanges = [{ key: "password", value: false }];
 
-      let dummyChangeset = newChangeset(model, dummyValidator, null, {
+      let dummyChangeset = newChangeset(model, dummyValidations, {
         skipValidate: true,
       });
       run(() => dummyChangeset.set("password", false));
@@ -451,7 +440,7 @@ module("Unit | Utility | changeset", function(hooks) {
 
     test("it accepts async validations", async function(assert) {
       let done = assert.async();
-      let dummyChangeset = newChangeset(model, dummyValidator);
+      let dummyChangeset = newChangeset(model, dummyValidations);
       let expectedChanges = [{ key: "async", value: true }];
       let expectedError = {
         async: { validation: "is invalid", value: "is invalid" },
@@ -477,7 +466,7 @@ module("Unit | Utility | changeset", function(hooks) {
 
     test("it clears errors when setting to original value", async function(assert) {
       set(model, "name", "Jim Bob");
-      let dummyChangeset = newChangeset(model, dummyValidator);
+      let dummyChangeset = newChangeset(model, dummyValidations);
       run(() => dummyChangeset.set("name", ""));
 
       assert.ok(get(dummyChangeset, "isInvalid"), "should be invalid");
@@ -491,7 +480,7 @@ module("Unit | Utility | changeset", function(hooks) {
         usa: { ny: "i need a vacation" },
       });
 
-      let c = newChangeset(model, dummyValidator, dummyValidations);
+      let c = newChangeset(model, dummyValidations);
       run(() => {
         c.set("org.usa.ny", "whoop");
         c.set("org.usa.ny", "i need a vacation");
@@ -518,7 +507,7 @@ module("Unit | Utility | changeset", function(hooks) {
 
   module("#rollback", function() {
     test("restores old values", async function(assert) {
-      let dummyChangeset = newChangeset(model, dummyValidator);
+      let dummyChangeset = newChangeset(model, dummyValidations);
       let expectedChanges = [
         { key: "firstName", value: "foo" },
         { key: "lastName", value: "bar" },
@@ -550,7 +539,7 @@ module("Unit | Utility | changeset", function(hooks) {
     });
 
     test("resets valid state", async function(assert) {
-      let dummyChangeset = newChangeset(model, dummyValidator);
+      let dummyChangeset = newChangeset(model, dummyValidations);
       run(() => dummyChangeset.set("name", "a"));
 
       assert.ok(get(dummyChangeset, "isInvalid"), "should be invalid");
@@ -560,7 +549,7 @@ module("Unit | Utility | changeset", function(hooks) {
 
     test("observing #rollback values", async function(assert) {
       let res;
-      let changeset = newChangeset(model, dummyValidator);
+      let changeset = newChangeset(model, dummyValidations);
       changeset.addObserver("name", function() {
         res = this.get("name");
       });
@@ -573,6 +562,220 @@ module("Unit | Utility | changeset", function(hooks) {
         res,
         "observer fired with the value name was rollback to"
       );
+    });
+  });
+
+  module("#validate", function() {
+    test("#validate/0 validates all fields immediately", function(assert) {
+      let done = assert.async();
+      model.setProperties({ name: "J", password: false, options: null });
+      let dummyChangeset = newChangeset(model, dummyValidations);
+
+      run(() => {
+        dummyChangeset.validate().then(() => {
+          assert.deepEqual(
+            get(dummyChangeset, "error.password"),
+            { validation: ["foo", "bar"], value: false },
+            "should validate immediately"
+          );
+          assert.deepEqual(
+            get(dummyChangeset, "changes"),
+            [],
+            "should not set changes"
+          );
+          // errors on all fields except confirmation, because neither password
+          // nor confirmaton have been set:
+          assert.equal(
+            get(dummyChangeset, "errors.length"),
+            4,
+            "should have 4 errors"
+          );
+          done();
+        });
+      });
+    });
+
+    test("#validate/1 validates a single field immediately", function(assert) {
+      let done = assert.async();
+      model.setProperties({ name: "J", password: "123" });
+      let dummyChangeset = newChangeset(model, dummyValidations);
+
+      run(() => {
+        dummyChangeset.validate("name").then(() => {
+          assert.deepEqual(
+            get(dummyChangeset, "error.name"),
+            { validation: "too short", value: "J" },
+            "should validate immediately"
+          );
+          assert.deepEqual(
+            get(dummyChangeset, "changes"),
+            [],
+            "should not set changes"
+          );
+          assert.equal(
+            get(dummyChangeset, "errors.length"),
+            1,
+            "should only have 1 error"
+          );
+          done();
+        });
+      });
+    });
+
+    test("it works correctly with changeset values", function(assert) {
+      let done = assert.async();
+      model.setProperties({
+        name: undefined,
+        password: false,
+        async: true,
+        passwordConfirmation: false,
+        options: {},
+      });
+      let dummyChangeset = newChangeset(model, dummyValidations);
+
+      run(() => {
+        dummyChangeset.set("name", "Jim Bob");
+        dummyChangeset.validate().then(() => {
+          assert.equal(
+            get(dummyChangeset, "errors.length"),
+            1,
+            "should have 1 error"
+          );
+          assert.equal(get(dummyChangeset, "errors.0.key"), "password");
+          assert.ok(get(dummyChangeset, "isInvalid"), "should be invalid");
+        });
+      });
+
+      run(() => {
+        dummyChangeset.set("passwordConfirmation", true);
+        dummyChangeset.validate().then(() => {
+          assert.equal(
+            get(dummyChangeset, "errors.length"),
+            2,
+            "should have 2 errors"
+          );
+          assert.equal(get(dummyChangeset, "errors.0.key"), "password");
+          assert.equal(
+            get(dummyChangeset, "errors.1.key"),
+            "passwordConfirmation"
+          );
+          assert.ok(get(dummyChangeset, "isInvalid"), "should be invalid");
+        });
+      });
+
+      run(() => {
+        dummyChangeset.set("password", true);
+        dummyChangeset.set("passwordConfirmation", true);
+        dummyChangeset.validate().then(() => {
+          assert.equal(
+            get(dummyChangeset, "errors.length"),
+            0,
+            "should have no errors"
+          );
+          assert.ok(get(dummyChangeset, "isValid"), "should be valid");
+          done();
+        });
+      });
+    });
+
+    test("it works correctly with complex values", function(assert) {
+      let done = assert.async();
+      model.setProperties({});
+      let dummyChangeset = newChangeset(model, dummyValidations);
+
+      run(() => {
+        dummyChangeset.set("options", { persist: true });
+        dummyChangeset.validate().then(() => {
+          assert.deepEqual(get(dummyChangeset, "changes.0"), {
+            key: "options",
+            value: { persist: true },
+          });
+          done();
+        });
+      });
+    });
+
+    test("it marks all changes, even invalid ones", function(assert) {
+      let done = assert.async();
+      model.setProperties({
+        name: "Jim Bob",
+        password: true,
+        passwordConfirmation: true,
+        async: true,
+      });
+      let dummyChangeset = newChangeset(model, dummyValidations);
+
+      run(() => {
+        dummyChangeset.set("name", "foo bar");
+        dummyChangeset.set("password", false);
+
+        dummyChangeset.validate().then(() => {
+          assert.deepEqual(get(dummyChangeset, "changes"), [
+            { key: "name", value: "foo bar" },
+            { key: "password", value: false },
+          ]);
+          done();
+        });
+      });
+    });
+
+    test("it does not mark changes when nothing has changed", function(assert) {
+      let done = assert.async();
+      let options = {
+        persist: true,
+        // test isEqual to ensure we're using Ember.isEqual for comparison
+        isEqual(other) {
+          return this.persist === get(other, "persist");
+        },
+      };
+      model.setProperties({
+        name: "Jim Bob",
+        password: true,
+        passwordConfirmation: true,
+        async: true,
+        options,
+      });
+      let dummyChangeset = newChangeset(model, dummyValidations);
+
+      run(() => {
+        dummyChangeset.set("options", options);
+        dummyChangeset.validate().then(() => {
+          assert.deepEqual(get(dummyChangeset, "error"), {});
+          assert.deepEqual(get(dummyChangeset, "changes"), []);
+          done();
+        });
+      });
+    });
+
+    test("it validates nested fields immediately", function(assert) {
+      let done = assert.async();
+      set(model, "org", {
+        usa: {
+          ny: null,
+        },
+      });
+
+      let dummyChangeset = newChangeset(model, dummyValidations);
+      run(() => {
+        dummyChangeset.validate("org.usa.ny").then(() => {
+          assert.deepEqual(
+            get(dummyChangeset, "error.org.usa.ny"),
+            { validation: "must be present", value: null },
+            "should validate immediately"
+          );
+          assert.deepEqual(
+            get(dummyChangeset, "changes"),
+            [],
+            "should not set changes"
+          );
+          assert.equal(
+            get(dummyChangeset, "errors.length"),
+            1,
+            "should only have 1 error"
+          );
+          done();
+        });
+      });
     });
   });
 });
