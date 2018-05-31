@@ -101,7 +101,7 @@ module('Unit | Utility | changeset', function(hooks) {
    * #isPristine
    */
 
-  test("isPristine returns true if changes are equal to content's values", function(assert) {
+  test("isPristine returns true if changes are equal to content's values", async function(assert) {
     let done = assert.async();
     model.set('name', 'Bobby');
     model.set('thing', 123);
@@ -117,7 +117,7 @@ module('Unit | Utility | changeset', function(hooks) {
     done();
   });
 
-  test("isPristine returns false if changes are not equal to content's values", function(assert) {
+  test("isPristine returns false if changes are not equal to content's values", async function(assert) {
     let done = assert.async();
 
     model.set('name', 'Bobby');
@@ -131,7 +131,7 @@ module('Unit | Utility | changeset', function(hooks) {
     done();
   });
 
-  test('isPristine works with `null` values', function(assert) {
+  test('isPristine works with `null` values', async function(assert) {
     model.set('name', null);
     model.set('age', 15);
     let dummyChangeset = newChangeset(model);
@@ -146,7 +146,7 @@ module('Unit | Utility | changeset', function(hooks) {
   });
 
   module("#get", function() {
-    test('it proxies to content', function(assert) {
+    test('it proxies to content', async function(assert) {
       set(model, 'name', 'Jim Bob');
       let dummyChangeset = newChangeset(model);
       let result = get(dummyChangeset, 'name');
@@ -154,7 +154,7 @@ module('Unit | Utility | changeset', function(hooks) {
       assert.equal(result, 'Jim Bob', 'should proxy to content');
     });
 
-    test('it returns change if present', function(assert) {
+    test('it returns change if present', async function(assert) {
       let done = assert.async();
       set(model, 'name', 'Jim Bob');
       let dummyChangeset = newChangeset(model);
@@ -166,7 +166,7 @@ module('Unit | Utility | changeset', function(hooks) {
       });
     });
 
-    test('it returns change that is a blank value', function(assert) {
+    test('it returns change that is a blank value', async function(assert) {
       let done = assert.async();
       set(model, 'name', 'Jim Bob');
       let dummyChangeset = newChangeset(model);
@@ -178,7 +178,7 @@ module('Unit | Utility | changeset', function(hooks) {
       });
     });
 
-    test('nested objects will return correct values', function(assert) {
+    test('nested objects will return correct values', async function(assert) {
       set(model, 'org', {
         asia: { sg: '_initial' },  // for the sake of disambiguating nulls
         usa: {
@@ -194,7 +194,7 @@ module('Unit | Utility | changeset', function(hooks) {
       assert.equal(dummyChangeset.get('org.asia.sg'), 'sg', 'returns newly set value');
     });
 
-    test('nested objects can contain arrays', function(assert) {
+    test('nested objects can contain arrays', async function(assert) {
       let done = assert.async();
 
       setProperties(model, {
@@ -221,7 +221,7 @@ module('Unit | Utility | changeset', function(hooks) {
       done();
     });
 
-    test('returned Object proxies to underlying method', function(assert) {
+    test('returned Object proxies to underlying method', async function(assert) {
       class Dog {
         constructor(b) {
           this.breed = b;
