@@ -43,13 +43,11 @@ const ERRORS = "_errors";
 const RELAY_CACHE = "_relayCache";
 const PROPERTY_VALIDATORS = "_propertyValidators";
 const VALIDATION_MAP = "_validationMap";
-const VALIDATOR = "_validator";
 const OPTIONS = "_options";
 const RUNNING_VALIDATIONS = "_runningValidations";
 const BEFORE_VALIDATION_EVENT = "beforeValidation";
 const AFTER_VALIDATION_EVENT = "afterValidation";
 const AFTER_ROLLBACK_EVENT = "afterRollback";
-const defaultValidatorFn = () => true;
 const defaultOptions = { skipValidate: false };
 
 function pureAssign(...objects) {
@@ -64,7 +62,6 @@ let internalProps = {};
   RELAY_CACHE,
   PROPERTY_VALIDATORS,
   VALIDATION_MAP,
-  VALIDATOR,
   OPTIONS,
   RUNNING_VALIDATIONS,
   BEFORE_VALIDATION_EVENT,
@@ -74,15 +71,9 @@ let internalProps = {};
 });
 const InternalPropertiesMixin = Mixin.create(internalProps);
 
-export function newChangeset(
-  obj,
-  validateFn,
-  validationMap,
-  options = defaultOptions
-) {
+export function newChangeset(obj, validationMap, options = defaultOptions) {
   let args = {};
   args[CONTENT] = obj;
-  args[VALIDATOR] = validateFn || defaultValidatorFn;
   args[VALIDATION_MAP] = validationMap;
   args[OPTIONS] = pureAssign(defaultOptions, options);
   return Changeset.create(args);
@@ -201,16 +192,13 @@ const Changeset = EmberObject.extend(Evented, InternalPropertiesMixin, {
 
     if (isNone(key)) {
       let allPromises = Object.keys(validationMap).map(validationKey => {
-        return c._setAndValidate(
-          validationKey,
-          c._valueFor(validationKey, isPlain)
-        );
+        return c._validate(validationKey, c._valueFor(validationKey, isPlain));
       });
 
       return all(allPromises);
     }
 
-    return c._setAndValidate(key, c._valueFor(key, isPlain));
+    return c._validate(key, c._valueFor(key, isPlain));
   },
 
   _setAndValidate(key, newValue) {
@@ -219,11 +207,6 @@ const Changeset = EmberObject.extend(Evented, InternalPropertiesMixin, {
     let changes = get(this, CHANGES);
 
     let c = this;
-
-    let propertyValidator = c[PROPERTY_VALIDATORS][key];
-    if (!propertyValidator) {
-      propertyValidator = this._initPropertyValidator(key, c[VALIDATOR]);
-    }
 
     // Happy path: remove `key` from error map.
     c._deleteKey(ERRORS, key);
@@ -239,9 +222,23 @@ const Changeset = EmberObject.extend(Evented, InternalPropertiesMixin, {
     c.notifyPropertyChange(CHANGES);
     c.notifyPropertyChange(key);
 
+    return this._validate(key, newValue);
+  },
+
+  _validate(key, value) {
+    let content = get(this, CONTENT);
+    let oldValue = get(content, key);
+    let changes = get(this, "change");
+    let c = this;
+    let propertyValidator = c[PROPERTY_VALIDATORS][key];
+
+    if (!propertyValidator) {
+      return true;
+    }
+
     return propertyValidator
       .get("validate")
-      .perform(c, newValue, oldValue, changes, content);
+      .perform(c, value, oldValue, changes, content);
   },
 
   /**
