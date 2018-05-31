@@ -1,9 +1,7 @@
 import EmberObject, { get } from "@ember/object";
 import { readOnly } from "@ember/object/computed";
 import { task } from "ember-concurrency";
-import {
-  isArray,
-} from '@ember/array';
+import { isArray } from "@ember/array";
 import { typeOf, isPresent } from "@ember/utils";
 
 const PropertyValidator = EmberObject.extend({
