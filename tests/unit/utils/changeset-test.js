@@ -574,49 +574,5 @@ module("Unit | Utility | changeset", function(hooks) {
         "observer fired with the value name was rollback to"
       );
     });
-
-    test("can update nested keys after rollback changes.", async function(assert) {
-      let expectedResult = {
-        org: {
-          asia: { sg: "sg" },
-          usa: {
-            ny: "ny",
-            ma: { name: "Massachusetts" },
-          },
-        },
-      };
-      set(model, "org", {
-        asia: { sg: null },
-        usa: {
-          ny: null,
-          ma: { name: null },
-        },
-      });
-
-      let dummyChangeset = newChangeset(model, dummyValidator);
-      run(() => {
-        dummyChangeset.set("org.asia.sg", "sg");
-        dummyChangeset.set("org.usa.ny", "ny");
-        dummyChangeset.set("org.usa.ma", { name: "Massachusetts" });
-      });
-      dummyChangeset.execute();
-      assert.deepEqual(
-        get(model, "org"),
-        expectedResult.org,
-        "should set value"
-      );
-
-      expectedResult.org.usa.or = "or";
-      run(() => {
-        dummyChangeset.rollback();
-        dummyChangeset.set("org.usa.or", "or");
-      });
-      dummyChangeset.execute();
-      assert.deepEqual(
-        get(model, "org"),
-        expectedResult.org,
-        "should set value"
-      );
-    });
   });
 });
